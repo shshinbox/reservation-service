@@ -1,0 +1,10 @@
+package me.songha.concert.reservation.application;
+
+import java.util.UUID;
+
+public class ReservationNotFoundException extends RuntimeException {
+
+    public ReservationNotFoundException(UUID reservationId) {
+        super("Reservation not found. reservationId=" + reservationId);
+    }
+}

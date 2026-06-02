@@ -1,0 +1,10 @@
+.git/
+.idea/
+.mvn/
+*.iml
+*.iws
+*.ipr
+.env
+.env.*
+secrets/
+HELP.md
