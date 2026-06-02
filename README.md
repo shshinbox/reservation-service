@@ -1,4 +1,4 @@
-# Reservation Service
+﻿# Reservation Service
 
 `seat-holding-service`가 Kafka로 발행한 `SeatHeldEvent`를 소비해 RDBMS에 예약 초안을 저장하는 서비스입니다.
 
