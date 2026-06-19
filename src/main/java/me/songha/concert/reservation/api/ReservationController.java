@@ -5,8 +5,7 @@ import me.songha.concert.reservation.application.ReservationCommandService;
 import me.songha.concert.reservation.application.ReservationQueryService;
 import me.songha.concert.reservation.api.auth.AuthenticatedUser;
 import me.songha.concert.reservation.domain.Reservation;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,32 +16,12 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping
 public class ReservationController {
 
     private final ReservationCommandService reservationCommandService;
     private final ReservationQueryService reservationQueryService;
-
-    public ReservationController(
-            ReservationCommandService reservationCommandService,
-            ReservationQueryService reservationQueryService
-    ) {
-        this.reservationCommandService = reservationCommandService;
-        this.reservationQueryService = reservationQueryService;
-    }
-
-    @PostMapping("/reservations/{reservationId}/confirm")
-    public ResponseEntity<ReservationCommandResponse> confirm(
-            @PathVariable UUID reservationId,
-            AuthenticatedUser authenticatedUser
-    ) {
-        ReservationCommandResult result = reservationCommandService.confirm(reservationId, authenticatedUser.userId());
-        ReservationCommandResponse response = toCommandResponse(result);
-        if (!result.completed()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
-        }
-        return ResponseEntity.ok(response);
-    }
 
     @PostMapping("/reservations/{reservationId}/cancel")
     public ReservationCommandResponse cancel(
@@ -53,13 +32,16 @@ public class ReservationController {
     }
 
     @GetMapping("/reservations/{reservationId}")
-    public ReservationResponse getReservation(@PathVariable UUID reservationId) {
-        return ReservationResponse.from(reservationQueryService.getReservation(reservationId));
+    public ReservationResponse getReservation(
+            @PathVariable UUID reservationId,
+            AuthenticatedUser authenticatedUser
+    ) {
+        return ReservationResponse.from(reservationQueryService.getReservation(reservationId, authenticatedUser.userId()));
     }
 
-    @GetMapping("/users/{userId}/reservations")
-    public List<ReservationResponse> getUserReservations(@PathVariable String userId) {
-        return reservationQueryService.getReservationsByUser(userId)
+    @GetMapping("/me/reservations")
+    public List<ReservationResponse> getMyReservations(AuthenticatedUser authenticatedUser) {
+        return reservationQueryService.getReservationsByUser(authenticatedUser.userId())
                 .stream()
                 .map(ReservationResponse::from)
                 .toList();

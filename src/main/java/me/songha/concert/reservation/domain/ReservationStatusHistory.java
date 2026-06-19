@@ -9,11 +9,16 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
 
+@Getter
 @Entity
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(name = "reservation_status_histories")
 public class ReservationStatusHistory {
 
@@ -39,9 +44,6 @@ public class ReservationStatusHistory {
     @Column(name = "changed_at", nullable = false, updatable = false)
     private Instant changedAt;
 
-    protected ReservationStatusHistory() {
-    }
-
     public ReservationStatusHistory(
             UUID reservationId,
             ReservationStatus fromStatus,
@@ -57,29 +59,5 @@ public class ReservationStatusHistory {
     @PrePersist
     void prePersist() {
         this.changedAt = Instant.now();
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public UUID getReservationId() {
-        return reservationId;
-    }
-
-    public ReservationStatus getFromStatus() {
-        return fromStatus;
-    }
-
-    public ReservationStatus getToStatus() {
-        return toStatus;
-    }
-
-    public ReservationStatusChangeReason getReason() {
-        return reason;
-    }
-
-    public Instant getChangedAt() {
-        return changedAt;
     }
 }

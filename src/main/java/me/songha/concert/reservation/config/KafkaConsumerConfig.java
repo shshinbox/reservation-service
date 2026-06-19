@@ -1,6 +1,6 @@
 package me.songha.concert.reservation.config;
 
-import me.songha.concert.reservation.event.SeatHeldEvent;
+import me.songha.concert.reservation.event.SeatHoldEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
@@ -32,7 +32,7 @@ import java.util.Map;
 public class KafkaConsumerConfig {
 
     @Bean
-    public ConsumerFactory<String, SeatHeldEvent> seatHeldConsumerFactory(
+    public ConsumerFactory<String, SeatHoldEvent> seatHoldConsumerFactory(
             @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers
     ) {
         Map<String, Object> props = new HashMap<>();
@@ -41,7 +41,7 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
         props.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, SeatHeldEvent.class.getName());
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, SeatHoldEvent.class.getName());
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "me.songha.concert.reservation.event");
         props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
@@ -81,13 +81,13 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, SeatHeldEvent> seatHeldKafkaListenerContainerFactory(
-            ConsumerFactory<String, SeatHeldEvent> seatHeldConsumerFactory,
+    public ConcurrentKafkaListenerContainerFactory<String, SeatHoldEvent> seatHoldKafkaListenerContainerFactory(
+            ConsumerFactory<String, SeatHoldEvent> seatHoldConsumerFactory,
             DefaultErrorHandler seatHeldDefaultErrorHandler
     ) {
-        ConcurrentKafkaListenerContainerFactory<String, SeatHeldEvent> factory =
+        ConcurrentKafkaListenerContainerFactory<String, SeatHoldEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(seatHeldConsumerFactory);
+        factory.setConsumerFactory(seatHoldConsumerFactory);
         factory.setCommonErrorHandler(seatHeldDefaultErrorHandler);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         factory.setConcurrency(1);

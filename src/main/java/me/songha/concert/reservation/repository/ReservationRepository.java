@@ -25,6 +25,10 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     Optional<Reservation> findByHoldId(UUID holdId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Reservation r where r.holdId = :holdId")
+    Optional<Reservation> findByHoldIdForUpdate(@Param("holdId") UUID holdId);
+
     List<Reservation> findByUserIdOrderByCreatedAtDesc(String userId);
 
     List<Reservation> findByStatusAndHoldExpiresAtBefore(ReservationStatus status, Instant now);

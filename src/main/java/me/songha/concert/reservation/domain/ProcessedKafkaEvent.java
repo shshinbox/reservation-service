@@ -5,11 +5,16 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
 
+@Getter
 @Entity
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(name = "processed_kafka_events")
 public class ProcessedKafkaEvent {
 
@@ -32,9 +37,6 @@ public class ProcessedKafkaEvent {
     @Column(name = "processed_at", nullable = false, updatable = false)
     private Instant processedAt;
 
-    protected ProcessedKafkaEvent() {
-    }
-
     public ProcessedKafkaEvent(UUID eventId, String eventType, String topic, int partitionNo, long offsetNo) {
         this.eventId = eventId;
         this.eventType = eventType;
@@ -46,29 +48,5 @@ public class ProcessedKafkaEvent {
     @PrePersist
     void prePersist() {
         this.processedAt = Instant.now();
-    }
-
-    public UUID getEventId() {
-        return eventId;
-    }
-
-    public String getEventType() {
-        return eventType;
-    }
-
-    public String getTopic() {
-        return topic;
-    }
-
-    public int getPartitionNo() {
-        return partitionNo;
-    }
-
-    public long getOffsetNo() {
-        return offsetNo;
-    }
-
-    public Instant getProcessedAt() {
-        return processedAt;
     }
 }

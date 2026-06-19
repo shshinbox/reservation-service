@@ -1,7 +1,7 @@
 package me.songha.concert.reservation.domain;
 
 public enum ReservationStatus {
-    HOLDING,
+    PAYMENT_PENDING,
     CONFIRMED,
     CANCELLED,
     EXPIRED

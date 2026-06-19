@@ -11,11 +11,16 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
 
+@Getter
 @Entity
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(name = "reservations")
 public class Reservation {
 
@@ -31,9 +36,6 @@ public class Reservation {
 
     @Column(name = "schedule_id", nullable = false, length = 100, updatable = false)
     private String scheduleId;
-
-    @Column(name = "venue_id", nullable = false, length = 100, updatable = false)
-    private String venueId;
 
     @Column(name = "seat_id", nullable = false, length = 100, updatable = false)
     private String seatId;
@@ -67,14 +69,10 @@ public class Reservation {
     @Column(name = "version", nullable = false)
     private Long version;
 
-    protected Reservation() {
-    }
-
     private Reservation(
             UUID reservationId,
             UUID holdId,
             String scheduleId,
-            String venueId,
             String seatId,
             String userId,
             Instant holdExpiresAt
@@ -82,27 +80,25 @@ public class Reservation {
         this.reservationId = reservationId;
         this.holdId = holdId;
         this.scheduleId = scheduleId;
-        this.venueId = venueId;
         this.seatId = seatId;
         this.userId = userId;
-        this.status = ReservationStatus.HOLDING;
+        this.status = ReservationStatus.PAYMENT_PENDING;
         this.holdExpiresAt = holdExpiresAt;
     }
 
-    public static Reservation holding(
+    public static Reservation paymentPending(
             UUID holdId,
             String scheduleId,
-            String venueId,
             String seatId,
             String userId,
             Instant holdExpiresAt
     ) {
-        return new Reservation(UUID.randomUUID(), holdId, scheduleId, venueId, seatId, userId, holdExpiresAt);
+        return new Reservation(UUID.randomUUID(), holdId, scheduleId, seatId, userId, holdExpiresAt);
     }
 
     public void confirm(Instant now) {
-        if (status != ReservationStatus.HOLDING) {
-            throw new IllegalStateException("Only HOLDING reservations can be confirmed.");
+        if (status != ReservationStatus.PAYMENT_PENDING) {
+            throw new IllegalStateException("Only PAYMENT_PENDING reservations can be confirmed.");
         }
         if (!now.isBefore(holdExpiresAt)) {
             throw new IllegalStateException("Reservation hold is expired.");
@@ -112,15 +108,18 @@ public class Reservation {
     }
 
     public void cancel(Instant now) {
-        if (status != ReservationStatus.HOLDING) {
-            throw new IllegalStateException("Only HOLDING reservations can be cancelled.");
+        if (status == ReservationStatus.CANCELLED) {
+            return;
+        }
+        if (status != ReservationStatus.PAYMENT_PENDING && status != ReservationStatus.CONFIRMED) {
+            throw new IllegalStateException("Only PAYMENT_PENDING or CONFIRMED reservations can be cancelled.");
         }
         this.status = ReservationStatus.CANCELLED;
         this.cancelledAt = now;
     }
 
     public void expire(Instant now) {
-        if (status != ReservationStatus.HOLDING) {
+        if (status != ReservationStatus.PAYMENT_PENDING) {
             return;
         }
         this.status = ReservationStatus.EXPIRED;
@@ -141,65 +140,5 @@ public class Reservation {
     @PreUpdate
     void preUpdate() {
         this.updatedAt = Instant.now();
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public UUID getReservationId() {
-        return reservationId;
-    }
-
-    public UUID getHoldId() {
-        return holdId;
-    }
-
-    public String getScheduleId() {
-        return scheduleId;
-    }
-
-    public String getVenueId() {
-        return venueId;
-    }
-
-    public String getSeatId() {
-        return seatId;
-    }
-
-    public String getUserId() {
-        return userId;
-    }
-
-    public ReservationStatus getStatus() {
-        return status;
-    }
-
-    public Instant getHoldExpiresAt() {
-        return holdExpiresAt;
-    }
-
-    public Instant getConfirmedAt() {
-        return confirmedAt;
-    }
-
-    public Instant getCancelledAt() {
-        return cancelledAt;
-    }
-
-    public Instant getExpiredAt() {
-        return expiredAt;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public Long getVersion() {
-        return version;
     }
 }

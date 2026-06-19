@@ -3,7 +3,8 @@ package me.songha.concert.reservation.consumer;
 import me.songha.concert.reservation.application.ReservationDraftService;
 import me.songha.concert.reservation.application.ReservationDuplicateMessageResolver;
 import me.songha.concert.reservation.event.KafkaEventMetadata;
-import me.songha.concert.reservation.event.SeatHeldEvent;
+import me.songha.concert.reservation.event.SeatHoldEvent;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -14,35 +15,28 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 @Component
-public class SeatHeldEventConsumer {
+@RequiredArgsConstructor
+public class SeatHoldEventConsumer {
 
-    private static final Logger log = LoggerFactory.getLogger(SeatHeldEventConsumer.class);
+    private static final Logger log = LoggerFactory.getLogger(SeatHoldEventConsumer.class);
 
     private final ReservationDraftService reservationDraftService;
     private final ReservationDuplicateMessageResolver duplicateMessageResolver;
 
-    public SeatHeldEventConsumer(
-            ReservationDraftService reservationDraftService,
-            ReservationDuplicateMessageResolver duplicateMessageResolver
-    ) {
-        this.reservationDraftService = reservationDraftService;
-        this.duplicateMessageResolver = duplicateMessageResolver;
-    }
-
     @KafkaListener(
-            topics = "${reservation.kafka.topics.seat-held}",
+            topics = "${reservation.kafka.topics.seat-hold}",
             groupId = "${reservation.kafka.consumer.group-id}",
-            containerFactory = "seatHeldKafkaListenerContainerFactory"
+            containerFactory = "seatHoldKafkaListenerContainerFactory"
     )
     public void consume(
-            SeatHeldEvent event,
+            SeatHoldEvent event,
             Acknowledgment acknowledgment,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partitionNo,
             @Header(KafkaHeaders.OFFSET) long offsetNo
     ) {
         try {
-            reservationDraftService.createDraftFromSeatHeldEvent(
+            reservationDraftService.applySeatHoldEvent(
                     event,
                     new KafkaEventMetadata(topic, partitionNo, offsetNo)
             );
@@ -50,7 +44,7 @@ public class SeatHeldEventConsumer {
         } catch (DataIntegrityViolationException exception) {
             if (duplicateMessageResolver.isAlreadyProcessed(exception)) {
                 log.info(
-                        "SeatHeldEvent already processed. eventId={}, holdId={}, topic={}, partition={}, offset={}",
+                        "SeatHoldEvent already processed. eventId={}, holdId={}, topic={}, partition={}, offset={}",
                         event != null ? event.eventId() : null,
                         event != null ? event.holdId() : null,
                         topic,

@@ -61,7 +61,7 @@ class ReservationRepositoryIntegrationTest {
         Reservation second = holdingReservation("schedule-1", "A-12");
         reservationRepository.saveAndFlush(second);
 
-        assertThat(second.getStatus()).isEqualTo(ReservationStatus.HOLDING);
+        assertThat(second.getStatus()).isEqualTo(ReservationStatus.PAYMENT_PENDING);
     }
 
     @Test
@@ -81,10 +81,9 @@ class ReservationRepositoryIntegrationTest {
     }
 
     private Reservation holdingReservation(UUID holdId, String scheduleId, String seatId) {
-        return Reservation.holding(
+        return Reservation.paymentPending(
                 holdId,
                 scheduleId,
-                "venue-1",
                 seatId,
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")

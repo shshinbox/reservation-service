@@ -11,26 +11,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ReservationTest {
 
     @Test
-    void holdingCreatesHoldingReservation() {
-        Reservation reservation = Reservation.holding(
+    void paymentPendingCreatesPaymentPendingReservation() {
+        Reservation reservation = Reservation.paymentPending(
                 UUID.randomUUID(),
                 "schedule-1",
-                "venue-1",
                 "A-12",
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")
         );
 
         assertThat(reservation.getReservationId()).isNotNull();
-        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.HOLDING);
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.PAYMENT_PENDING);
     }
 
     @Test
     void confirmChangesStatusToConfirmed() {
-        Reservation reservation = Reservation.holding(
+        Reservation reservation = Reservation.paymentPending(
                 UUID.randomUUID(),
                 "schedule-1",
-                "venue-1",
                 "A-12",
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")
@@ -44,10 +42,9 @@ class ReservationTest {
 
     @Test
     void confirmThrowsWhenHoldIsExpired() {
-        Reservation reservation = Reservation.holding(
+        Reservation reservation = Reservation.paymentPending(
                 UUID.randomUUID(),
                 "schedule-1",
-                "venue-1",
                 "A-12",
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")
