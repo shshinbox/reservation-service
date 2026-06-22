@@ -1,6 +1,6 @@
 package me.songha.concert.reservation.config;
 
-import me.songha.concert.reservation.api.auth.AuthenticatedUserArgumentResolver;
+import me.songha.concert.reservation.controller.auth.AuthenticatedUserArgumentResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;

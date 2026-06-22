@@ -1,8 +1,10 @@
 package me.songha.concert.reservation.api;
 
-import me.songha.concert.reservation.application.ReservationCommandResult;
-import me.songha.concert.reservation.application.ReservationCommandService;
-import me.songha.concert.reservation.domain.Reservation;
+import me.songha.concert.reservation.controller.PaymentWebhookController;
+import me.songha.concert.reservation.controller.dto.reservation.ReservationResponse;
+import me.songha.concert.reservation.service.dto.ReservationOperationResult;
+import me.songha.concert.reservation.service.ReservationOperationService;
+import me.songha.concert.reservation.domain.ReservationStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -11,10 +13,11 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,13 +33,13 @@ class PaymentWebhookControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private ReservationCommandService reservationCommandService;
+    private ReservationOperationService reservationOperationService;
 
     @Test
     void paidWebhookConfirmsReservation() throws Exception {
         UUID reservationId = UUID.randomUUID();
-        when(reservationCommandService.confirmPaid(reservationId))
-                .thenReturn(ReservationCommandResult.completed(mock(Reservation.class)));
+        when(reservationOperationService.confirmPaid(reservationId))
+                .thenReturn(ReservationOperationResult.completed(reservationResponse(reservationId)));
 
         mockMvc.perform(post("/webhooks/payments")
                         .header("X-Payment-Webhook-Secret", "test-secret")
@@ -53,7 +56,7 @@ class PaymentWebhookControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.processed").value(true));
 
-        verify(reservationCommandService).confirmPaid(reservationId);
+        verify(reservationOperationService).confirmPaid(reservationId);
     }
 
     @Test
@@ -99,15 +102,15 @@ class PaymentWebhookControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.processed").value(true));
 
-        verify(reservationCommandService, never()).confirmPaid(any());
+        verify(reservationOperationService, never()).confirmPaid(any());
     }
 
     @Test
     void expiredPaymentPendingReservationReturnsConflict() throws Exception {
         UUID reservationId = UUID.randomUUID();
-        when(reservationCommandService.confirmPaid(reservationId))
-                .thenReturn(ReservationCommandResult.rejected(
-                        mock(Reservation.class),
+        when(reservationOperationService.confirmPaid(reservationId))
+                .thenReturn(ReservationOperationResult.rejected(
+                        reservationResponse(reservationId),
                         "Reservation hold is expired."
                 ));
 
@@ -123,5 +126,22 @@ class PaymentWebhookControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.processed").value(false))
                 .andExpect(jsonPath("$.message").value("Reservation hold is expired."));
+    }
+
+    private ReservationResponse reservationResponse(UUID reservationId) {
+        return new ReservationResponse(
+                reservationId,
+                "confirmation-1",
+                "schedule-1",
+                List.of("A-12"),
+                "user-1",
+                ReservationStatus.PAYMENT_PENDING,
+                Instant.parse("2026-05-25T11:55:00Z"),
+                null,
+                null,
+                null,
+                Instant.parse("2026-05-25T11:50:00Z"),
+                Instant.parse("2026-05-25T11:50:00Z")
+        );
     }
 }

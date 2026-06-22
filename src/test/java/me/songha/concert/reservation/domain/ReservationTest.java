@@ -3,8 +3,6 @@ package me.songha.concert.reservation.domain;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -13,9 +11,8 @@ class ReservationTest {
     @Test
     void paymentPendingCreatesPaymentPendingReservation() {
         Reservation reservation = Reservation.paymentPending(
-                UUID.randomUUID(),
+                "confirmation-1",
                 "schedule-1",
-                "A-12",
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")
         );
@@ -27,9 +24,8 @@ class ReservationTest {
     @Test
     void confirmChangesStatusToConfirmed() {
         Reservation reservation = Reservation.paymentPending(
-                UUID.randomUUID(),
+                "confirmation-1",
                 "schedule-1",
-                "A-12",
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")
         );
@@ -43,9 +39,8 @@ class ReservationTest {
     @Test
     void confirmThrowsWhenHoldIsExpired() {
         Reservation reservation = Reservation.paymentPending(
-                UUID.randomUUID(),
+                "confirmation-1",
                 "schedule-1",
-                "A-12",
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")
         );

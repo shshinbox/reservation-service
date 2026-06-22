@@ -1,10 +1,13 @@
 package me.songha.concert.reservation.api;
 
-import me.songha.concert.reservation.api.auth.AuthenticatedUserArgumentResolver;
-import me.songha.concert.reservation.application.ReservationCommandService;
-import me.songha.concert.reservation.application.ReservationQueryService;
+import me.songha.concert.reservation.controller.ReservationExceptionHandler;
+import me.songha.concert.reservation.controller.auth.AuthenticatedUserArgumentResolver;
+import me.songha.concert.reservation.controller.ReservationController;
+import me.songha.concert.reservation.controller.dto.reservation.ReservationResponse;
+import me.songha.concert.reservation.service.ReservationOperationService;
+import me.songha.concert.reservation.service.ReservationLookupService;
 import me.songha.concert.reservation.config.WebConfig;
-import me.songha.concert.reservation.domain.Reservation;
+import me.songha.concert.reservation.domain.ReservationStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -13,6 +16,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.Mockito.when;
@@ -32,10 +36,10 @@ class ReservationControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private ReservationCommandService reservationCommandService;
+    private ReservationOperationService reservationOperationService;
 
     @MockitoBean
-    private ReservationQueryService reservationQueryService;
+    private ReservationLookupService reservationLookupService;
 
     @Test
     void getReservationRequiresAuthenticatedUser() throws Exception {
@@ -47,20 +51,27 @@ class ReservationControllerTest {
     @Test
     void getReservationUsesAuthenticatedUser() throws Exception {
         UUID reservationId = UUID.randomUUID();
-        Reservation reservation = Reservation.paymentPending(
-                UUID.randomUUID(),
+        ReservationResponse reservation = new ReservationResponse(
+                reservationId,
+                "confirmation-1",
                 "schedule-1",
-                "A-12",
+                List.of("A-12"),
                 "user-1",
-                Instant.parse("2026-05-25T11:55:00Z")
+                ReservationStatus.PAYMENT_PENDING,
+                Instant.parse("2026-05-25T11:55:00Z"),
+                null,
+                null,
+                null,
+                Instant.parse("2026-05-25T11:50:00Z"),
+                Instant.parse("2026-05-25T11:50:00Z")
         );
-        when(reservationQueryService.getReservation(reservationId, "user-1")).thenReturn(reservation);
+        when(reservationLookupService.getReservation(reservationId, "user-1")).thenReturn(reservation);
 
         mockMvc.perform(get("/reservations/{reservationId}", reservationId)
                         .header("X-Authenticated-User-Id", "user-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scheduleId").value("schedule-1"))
-                .andExpect(jsonPath("$.seatId").value("A-12"))
+                .andExpect(jsonPath("$.seatIds[0]").value("A-12"))
                 .andExpect(jsonPath("$.userId").value("user-1"))
                 .andExpect(jsonPath("$.status").value("PAYMENT_PENDING"));
     }

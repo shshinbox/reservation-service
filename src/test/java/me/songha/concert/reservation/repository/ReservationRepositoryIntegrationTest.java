@@ -1,6 +1,7 @@
 package me.songha.concert.reservation.repository;
 
 import me.songha.concert.reservation.domain.Reservation;
+import me.songha.concert.reservation.domain.ReservationSeat;
 import me.songha.concert.reservation.domain.ReservationStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +15,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,6 +30,9 @@ class ReservationRepositoryIntegrationTest {
     @Autowired
     private ReservationRepository reservationRepository;
 
+    @Autowired
+    private ReservationSeatRepository reservationSeatRepository;
+
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
@@ -40,35 +43,43 @@ class ReservationRepositoryIntegrationTest {
     }
 
     @Test
-    void activeReservationCannotUseSameScheduleAndSeat() {
-        Reservation first = holdingReservation("schedule-1", "A-12");
-        Reservation second = holdingReservation("schedule-1", "A-12");
-
+    void activeReservationSeatCannotUseSameScheduleAndSeat() {
+        Reservation first = reservation("confirmation-1");
+        Reservation second = reservation("confirmation-2");
         reservationRepository.saveAndFlush(first);
+        reservationRepository.saveAndFlush(second);
+        reservationSeatRepository.saveAndFlush(ReservationSeat.paymentPending(first, "A-12"));
 
-        assertThatThrownBy(() -> reservationRepository.saveAndFlush(second))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> reservationSeatRepository.saveAndFlush(
+                ReservationSeat.paymentPending(second, "A-12")
+        )).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
-    void expiredReservationAllowsSameScheduleAndSeatAgain() {
-        Reservation first = holdingReservation("schedule-1", "A-12");
+    void expiredReservationSeatAllowsSameScheduleAndSeatAgain() {
+        Reservation first = reservation("confirmation-1");
+        Reservation second = reservation("confirmation-2");
         reservationRepository.saveAndFlush(first);
+        ReservationSeat firstSeat = ReservationSeat.paymentPending(first, "A-12");
+        reservationSeatRepository.saveAndFlush(firstSeat);
 
         first.expire(Instant.parse("2026-05-25T11:56:00Z"));
+        firstSeat.expire();
         reservationRepository.saveAndFlush(first);
+        reservationSeatRepository.saveAndFlush(firstSeat);
 
-        Reservation second = holdingReservation("schedule-1", "A-12");
         reservationRepository.saveAndFlush(second);
+        ReservationSeat secondSeat = reservationSeatRepository.saveAndFlush(
+                ReservationSeat.paymentPending(second, "A-12")
+        );
 
-        assertThat(second.getStatus()).isEqualTo(ReservationStatus.PAYMENT_PENDING);
+        assertThat(secondSeat.getStatus()).isEqualTo(ReservationStatus.PAYMENT_PENDING);
     }
 
     @Test
-    void holdIdMustBeUnique() {
-        UUID holdId = UUID.randomUUID();
-        Reservation first = holdingReservation(holdId, "schedule-1", "A-12");
-        Reservation second = holdingReservation(holdId, "schedule-2", "A-13");
+    void confirmationIdMustBeUnique() {
+        Reservation first = reservation("confirmation-1");
+        Reservation second = reservation("confirmation-1");
 
         reservationRepository.saveAndFlush(first);
 
@@ -76,15 +87,10 @@ class ReservationRepositoryIntegrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    private Reservation holdingReservation(String scheduleId, String seatId) {
-        return holdingReservation(UUID.randomUUID(), scheduleId, seatId);
-    }
-
-    private Reservation holdingReservation(UUID holdId, String scheduleId, String seatId) {
+    private Reservation reservation(String confirmationId) {
         return Reservation.paymentPending(
-                holdId,
-                scheduleId,
-                seatId,
+                confirmationId,
+                "schedule-1",
                 "user-1",
                 Instant.parse("2026-05-25T11:55:00Z")
         );

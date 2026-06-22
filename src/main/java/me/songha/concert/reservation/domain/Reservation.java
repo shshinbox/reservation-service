@@ -10,12 +10,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -31,14 +31,11 @@ public class Reservation {
     @Column(name = "reservation_id", nullable = false, unique = true, updatable = false)
     private UUID reservationId;
 
-    @Column(name = "hold_id", nullable = false, unique = true, updatable = false)
-    private UUID holdId;
+    @Column(name = "confirmation_id", nullable = false, unique = true, length = 100, updatable = false)
+    private String confirmationId;
 
     @Column(name = "schedule_id", nullable = false, length = 100, updatable = false)
     private String scheduleId;
-
-    @Column(name = "seat_id", nullable = false, length = 100, updatable = false)
-    private String seatId;
 
     @Column(name = "user_id", nullable = false, length = 100, updatable = false)
     private String userId;
@@ -47,8 +44,8 @@ public class Reservation {
     @Column(name = "status", nullable = false, length = 30)
     private ReservationStatus status;
 
-    @Column(name = "hold_expires_at", nullable = false, updatable = false)
-    private Instant holdExpiresAt;
+    @Column(name = "payment_expires_at", nullable = false, updatable = false)
+    private Instant paymentExpiresAt;
 
     @Column(name = "confirmed_at")
     private Instant confirmedAt;
@@ -65,42 +62,44 @@ public class Reservation {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    @Version
-    @Column(name = "version", nullable = false)
-    private Long version;
-
     private Reservation(
             UUID reservationId,
-            UUID holdId,
+            String confirmationId,
             String scheduleId,
-            String seatId,
             String userId,
-            Instant holdExpiresAt
+            Instant paymentExpiresAt
     ) {
         this.reservationId = reservationId;
-        this.holdId = holdId;
+        this.confirmationId = confirmationId;
         this.scheduleId = scheduleId;
-        this.seatId = seatId;
         this.userId = userId;
         this.status = ReservationStatus.PAYMENT_PENDING;
-        this.holdExpiresAt = holdExpiresAt;
+        this.paymentExpiresAt = paymentExpiresAt;
     }
 
     public static Reservation paymentPending(
-            UUID holdId,
+            String confirmationId,
             String scheduleId,
-            String seatId,
             String userId,
-            Instant holdExpiresAt
+            Instant paymentExpiresAt
     ) {
-        return new Reservation(UUID.randomUUID(), holdId, scheduleId, seatId, userId, holdExpiresAt);
+        return new Reservation(UUID.randomUUID(), confirmationId, scheduleId, userId, paymentExpiresAt);
+    }
+
+    public List<ReservationSeat> createSeats(List<String> seatIds) {
+        if (status != ReservationStatus.PAYMENT_PENDING) {
+            throw new IllegalStateException("Only PAYMENT_PENDING reservations can create seats.");
+        }
+        return seatIds.stream()
+                .map(seatId -> ReservationSeat.paymentPending(this, seatId))
+                .toList();
     }
 
     public void confirm(Instant now) {
         if (status != ReservationStatus.PAYMENT_PENDING) {
             throw new IllegalStateException("Only PAYMENT_PENDING reservations can be confirmed.");
         }
-        if (!now.isBefore(holdExpiresAt)) {
+        if (!now.isBefore(paymentExpiresAt)) {
             throw new IllegalStateException("Reservation hold is expired.");
         }
         this.status = ReservationStatus.CONFIRMED;
@@ -111,8 +110,8 @@ public class Reservation {
         if (status == ReservationStatus.CANCELLED) {
             return;
         }
-        if (status != ReservationStatus.PAYMENT_PENDING && status != ReservationStatus.CONFIRMED) {
-            throw new IllegalStateException("Only PAYMENT_PENDING or CONFIRMED reservations can be cancelled.");
+        if (status != ReservationStatus.PAYMENT_PENDING) {
+            throw new IllegalStateException("Only PAYMENT_PENDING reservations can be cancelled.");
         }
         this.status = ReservationStatus.CANCELLED;
         this.cancelledAt = now;
@@ -126,8 +125,8 @@ public class Reservation {
         this.expiredAt = now;
     }
 
-    public boolean isHoldExpired(Instant now) {
-        return !now.isBefore(holdExpiresAt);
+    public boolean isPaymentExpired(Instant now) {
+        return !now.isBefore(paymentExpiresAt);
     }
 
     @PrePersist

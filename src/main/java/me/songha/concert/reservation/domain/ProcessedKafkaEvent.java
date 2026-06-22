@@ -10,8 +10,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.util.UUID;
-
 @Getter
 @Entity
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -20,7 +18,7 @@ public class ProcessedKafkaEvent {
 
     @Id
     @Column(name = "event_id", nullable = false, updatable = false)
-    private UUID eventId;
+    private String eventId;
 
     @Column(name = "event_type", nullable = false, length = 50, updatable = false)
     private String eventType;
@@ -37,7 +35,7 @@ public class ProcessedKafkaEvent {
     @Column(name = "processed_at", nullable = false, updatable = false)
     private Instant processedAt;
 
-    public ProcessedKafkaEvent(UUID eventId, String eventType, String topic, int partitionNo, long offsetNo) {
+    public ProcessedKafkaEvent(String eventId, String eventType, String topic, int partitionNo, long offsetNo) {
         this.eventId = eventId;
         this.eventType = eventType;
         this.topic = topic;

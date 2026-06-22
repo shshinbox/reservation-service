@@ -1,10 +1,11 @@
 package me.songha.concert.reservation.event;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import me.songha.concert.reservation.kafka.SeatHoldEvent;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.util.UUID;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,29 +15,28 @@ class SeatHoldEventTest {
 
     @Test
     void mapsSeatHoldEventJson() throws Exception {
-        UUID eventId = UUID.randomUUID();
-        UUID holdId = UUID.randomUUID();
-
         SeatHoldEvent event = objectMapper.readValue("""
                 {
-                  "eventId": "%s",
-                  "eventType": "SEAT_HOLD_HELD",
-                  "holdId": "%s",
+                  "eventId": "event-1",
+                  "eventType": "SEAT_HOLD_CONFIRMED",
+                  "holdId": "confirmation-1",
                   "scheduleId": "schedule-1",
-                  "seatId": "A-12",
+                  "seatIds": ["A-12", "A-13"],
                   "userId": "user-1",
-                  "expiresAt": "2026-05-25T11:55:00Z",
-                  "occurredAt": "2026-05-25T11:50:00Z"
+                  "expiresAt": null,
+                  "occurredAt": "2026-05-25T11:50:00Z",
+                  "schemaVersion": 2
                 }
-                """.formatted(eventId, holdId), SeatHoldEvent.class);
+                """, SeatHoldEvent.class);
 
-        assertThat(event.eventId()).isEqualTo(eventId);
-        assertThat(event.eventType()).isEqualTo("SEAT_HOLD_HELD");
-        assertThat(event.holdId()).isEqualTo(holdId);
+        assertThat(event.eventId()).isEqualTo("event-1");
+        assertThat(event.eventType()).isEqualTo("SEAT_HOLD_CONFIRMED");
+        assertThat(event.holdId()).isEqualTo("confirmation-1");
         assertThat(event.scheduleId()).isEqualTo("schedule-1");
-        assertThat(event.seatId()).isEqualTo("A-12");
+        assertThat(event.seatIds()).isEqualTo(List.of("A-12", "A-13"));
         assertThat(event.userId()).isEqualTo("user-1");
-        assertThat(event.expiresAt()).isEqualTo(Instant.parse("2026-05-25T11:55:00Z"));
+        assertThat(event.expiresAt()).isNull();
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2026-05-25T11:50:00Z"));
+        assertThat(event.schemaVersion()).isEqualTo(2);
     }
 }
