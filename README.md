@@ -1,20 +1,80 @@
 # Reservation Service
 
-좌석 선점 서비스가 발행한 Kafka 이벤트를 소비해 예약을 생성하고, 결제 웹훅을 통해 예약을 확정하는 서비스입니다.
+Kafka 이벤트를 소비해 예약을 생성하고, 결제 웹훅으로 예약을 확정하는 서비스입니다. 예약 상태의 기준은 PostgreSQL이며, 결제 완료 좌석은 Redis sold key에도 기록합니다.
 
-예약 상태의 최종 기준은 PostgreSQL입니다. Redis는 결제 완료 좌석을 빠르게 조회하기 위한 보조 저장소이며, DB 트랜잭션이 성공적으로 커밋된 뒤에만 갱신합니다.
+## 기술 스택
 
-## 역할
+- Java 21
+- Spring Boot
+- Spring MVC
+- Spring Data JPA
+- PostgreSQL
+- Flyway
+- Spring Kafka Consumer
+- Spring Data Redis
+- Maven
 
-- 좌석 선점 확정 이벤트를 소비해 `PAYMENT_PENDING` 예약을 생성합니다.
-- 한 예약에서 최대 4개 좌석을 처리합니다.
-- 결제 완료 웹훅을 받아 예약과 좌석을 `CONFIRMED`로 확정합니다.
-- 사용자가 본인의 결제 대기 예약을 취소할 수 있습니다.
-- 결제 기한이 지난 예약을 스케줄러가 `EXPIRED`로 만료 처리합니다.
-- Kafka 재처리와 중복 메시지를 고려해 이벤트 처리 이력을 저장합니다.
+## 기술 선택 사유
+
+### PostgreSQL을 기준 저장소로 사용
+
+예약은 결제 대기, 결제 확정, 취소, 만료처럼 상태가 바뀌고 같은 좌석이 동시에 활성 예약에 들어가면 안 됩니다. 그래서 예약 상태의 기준은 트랜잭션과 제약 조건을 가진 RDB에 둡니다.
+
+- 예약과 좌석을 같은 트랜잭션에서 저장합니다.
+- 활성 좌석 중복은 PostgreSQL의 partial unique index로 방어합니다.
+- 상태 변경 이력은 별도 테이블에 남깁니다.
+
+여기서 partial unique index는 `schedule_id`, `seat_id`를 기준으로 잡고, 활성 예약 상태에만 적용합니다.
+
+```sql
+CREATE UNIQUE INDEX uq_reservation_seats_active_schedule_seat
+ON reservation_seats (schedule_id, seat_id)
+WHERE status IN ('PAYMENT_PENDING', 'CONFIRMED')
+```
+
+### Kafka Consumer로 예약 생성
+
+예약 생성은 사용자의 좌석 선점 확정 이후에 시작됩니다. 이 서비스는 HTTP 요청으로 예약을 만들지 않고, `seat-hold-events` 토픽의 이벤트를 입력으로 받습니다.
+
+- 이벤트를 소비해 `PAYMENT_PENDING` 예약을 생성합니다.
+- `eventId`, `confirmationId`로 중복 처리를 막습니다.
+- 처리 실패 메시지는 재시도 후 `.DLT` 토픽으로 보냅니다.
+
+### Redis를 판매 좌석 캐시로 사용
+
+판매 완료 여부는 좌석 선택 단계에서 자주 조회되는 값입니다. 매번 예약 DB를 조회하지 않도록 결제 확정된 좌석만 Redis에 `sold` key로 기록합니다.
+
+- DB 커밋 이후 Redis를 갱신합니다.
+
+### 만료 처리는 스케줄러로 처리
+
+예약이 생성된 뒤 결제가 끝나지 않으면 좌석을 계속 점유하면 안 됩니다. 그래서 `PAYMENT_PENDING` 예약은 3일 후 만료 처리합니다.
+
+현재는 같은 애플리케이션 안에 스케줄러를 두었지만, 만료 처리는 추후 별도 worker로 분리할 요소입니다. 분리 시 worker 인스턴스에만 `RESERVATION_EXPIRATION_SCHEDULER_ENABLED=true`를 설정합니다.
+
+## 정책
+
+- `SEAT_HOLD_CONFIRMED` 이벤트를 소비하면 `PAYMENT_PENDING` 예약을 생성합니다.
+- 한 예약은 최대 4개 좌석까지 가질 수 있습니다.
+- `seatIds`는 공백과 중복을 허용하지 않습니다.
+- 결제 기한은 `occurredAt + 3일`입니다.
+- 결제 웹훅의 `status`가 `PAID`일 때만 확정합니다.
+- 사용자는 본인의 `PAYMENT_PENDING` 예약만 취소할 수 있습니다.
+- 만료된 `PAYMENT_PENDING` 예약은 `EXPIRED`로 전환합니다.
+- 사용자 식별자는 `X-Authenticated-User-Id` 헤더에서 추출합니다.
+
+## 인증 사용자
+
+사용자 예약 조회와 취소 API는 다음 헤더가 필요합니다.
+
+```http
+X-Authenticated-User-Id: user-1
+```
+
+없거나 blank이면 `401 Unauthorized`를 반환합니다.
 
 
-## Kafka 이벤트 명세
+## Kafka 이벤트
 
 소비 토픽:
 
@@ -22,13 +82,13 @@
 seat-hold-events
 ```
 
-이벤트:
+이벤트 타입:
 
 ```text
 SEAT_HOLD_CONFIRMED
 ```
 
-이벤트 payload:
+payload:
 
 ```json
 {
@@ -36,55 +96,130 @@ SEAT_HOLD_CONFIRMED
   "eventType": "SEAT_HOLD_CONFIRMED",
   "holdId": "confirmation-uuid",
   "scheduleId": "schedule-1",
-  "seatIds": ["A-12", "A-13"],
+  "seatIds": ["A-1", "A-2"],
   "userId": "user-1",
   "expiresAt": null,
-  "occurredAt": "2026-05-25T11:50:00Z",
+  "occurredAt": "2026-06-23T12:00:00Z",
   "schemaVersion": 2
 }
 ```
 
-처리 방식:
+검증:
 
-```text
-SEAT_HOLD_CONFIRMED
-  -> PAYMENT_PENDING 예약 생성
-  -> paymentExpiresAt = occurredAt + 3일
-```
+- `eventType = SEAT_HOLD_CONFIRMED`
+- `eventId`, `holdId`, `scheduleId`, `userId`, `occurredAt` 필수
+- `seatIds`는 1개 이상 4개 이하
 
-컨슈머는 Spring Kafka 컨테이너의 ack 흐름을 사용합니다. 정상 처리되면 listener가 정상 반환하고, 예외가 발생하면 `DefaultErrorHandler`가 재시도 후 DLT로 보냅니다.
-
-DLT 토픽은 현재 원본 토픽명에 `.DLT`를 붙입니다.
+처리 실패 메시지는 재시도 후 DLT로 이동합니다.
 
 ```text
 seat-hold-events.DLT
 ```
 
-DLT에 쌓인 메시지를 재처리하려면 별도 DLT consumer나 운영 도구가 필요합니다.
+## Redis 키
 
-## Redis
-
-Redis에는 결제 완료 좌석만 기록합니다. 좌석 선점 여부의 최종 기준은 PostgreSQL의 `reservation_seats`입니다.
-
-Key:
+결제 완료 좌석만 기록합니다.
 
 ```text
 sold:schedule:{scheduleId}:seat:{seatId}
 ```
 
-Value:
+- TTL 없음
+- 값은 `reservationId`
+- DB 커밋 이후 기록
+
+## 예약 생성 흐름
 
 ```text
-reservationId
+Kafka seat-hold-events
+  -> SeatHoldEventConsumer.consume
+  -> ReservationDraftService.applySeatHoldEvent
+      1. 이벤트 검증
+      2. 중복 이벤트 확인
+      3. 중복 예약 확인
+      4. 활성 좌석 충돌 확인
+      5. PAYMENT_PENDING 예약 생성
+      6. 예약 좌석 생성
+      7. 상태 이력 저장
 ```
 
-TTL:
+좌석 충돌이나 잘못된 이벤트는 retry/DLT 흐름으로 넘깁니다.
+
+## 결제 확정 흐름
 
 ```text
-없음
+POST /webhooks/payments
+  -> 웹훅 secret 검증
+  -> PAID 상태만 처리
+  -> 예약 row for update 조회
+  -> PAYMENT_PENDING이면 CONFIRMED 전환
+  -> 상태 이력 저장
+  -> DB commit 이후 Redis sold key 기록
 ```
 
-Redis 갱신은 DB 트랜잭션 커밋 이후 `afterCommit` 콜백에서 수행합니다. DB는 확정됐지만 Redis 갱신 전에 장애가 난 경우를 보정하기 위해, 이미 `CONFIRMED`인 예약의 결제 웹훅이 다시 들어오면 Redis sold key를 다시 기록합니다.
+결제 기한이 지났으면 예약과 좌석을 `EXPIRED`로 전환하고 `409 Conflict`를 반환합니다.
+
+## 예약 취소 흐름
+
+```text
+POST /reservations/{reservationId}/cancel
+  -> 사용자 헤더 추출
+  -> 예약 row for update 조회
+  -> 소유자 검증
+  -> PAYMENT_PENDING이면 CANCELLED 전환
+  -> 상태 이력 저장
+```
+
+`CONFIRMED` 취소는 현재 지원하지 않습니다.
+
+## 만료 처리 흐름
+
+```text
+ReservationExpirationScheduler
+  -> 만료된 PAYMENT_PENDING 예약 최대 100건 조회
+  -> 상태 이력 bulk insert
+  -> 예약 좌석 bulk update
+  -> 예약 bulk update
+```
+
+추후 만료 처리 worker를 여러 대로 확장할 경우, `FOR UPDATE SKIP LOCKED` 방식으로 같은 예약을 중복 집계하지 않도록 개선할 수 있습니다.
+
+설정:
+
+```properties
+reservation.expiration-scheduler.enabled=false
+reservation.expiration-scheduler.fixed-delay-ms=30000
+```
+
+worker 인스턴스에서 활성화:
+
+```properties
+RESERVATION_EXPIRATION_SCHEDULER_ENABLED=true
+```
+
+## API
+
+### 예약 취소
+
+```http
+POST /reservations/{reservationId}/cancel
+X-Authenticated-User-Id: user-1
+```
+
+
+### 예약 상세 조회
+
+```http
+GET /reservations/{reservationId}
+X-Authenticated-User-Id: user-1
+```
+
+### 내 예약 목록 조회
+
+```http
+GET /me/reservations
+X-Authenticated-User-Id: user-1
+```
 
 ## 예약 상태
 
@@ -98,66 +233,10 @@ EXPIRED
 상태 전이:
 
 ```text
-좌석 선점 확정 이벤트
-  -> PAYMENT_PENDING
-
-결제 웹훅 PAID
-  -> PAYMENT_PENDING -> CONFIRMED
-
-사용자 취소
-  -> PAYMENT_PENDING -> CANCELLED
-
-결제 기한 만료
-  -> PAYMENT_PENDING -> EXPIRED
-```
-
-현재 사용자 취소는 `PAYMENT_PENDING` 상태만 허용합니다. `CONFIRMED` 취소는 환불/결제 취소 정책이 필요하므로 별도 흐름으로 분리할 예정입니다.
-
-## API
-
-### 결제 웹훅
-
-```http
-POST /webhooks/payments
-X-Payment-Webhook-Secret: local-payment-webhook-secret
-Content-Type: application/json
-```
-
-```json
-{
-  "eventId": "payment-event-1",
-  "paymentId": "payment-1",
-  "reservationId": "reservation-uuid",
-  "status": "PAID",
-  "occurredAt": "2026-05-25T11:50:00Z"
-}
-```
-
-`status = PAID`일 때만 예약 확정을 시도합니다. 다른 상태는 정상 수신 후 무시합니다.
-
-### 예약 취소
-
-```http
-POST /reservations/{reservationId}/cancel
-X-Authenticated-User-Id: user-1
-```
-
-본인의 `PAYMENT_PENDING` 예약만 취소할 수 있습니다.
-
-### 예약 단건 조회
-
-```http
-GET /reservations/{reservationId}
-X-Authenticated-User-Id: user-1
-```
-
-본인 예약만 조회할 수 있습니다.
-
-### 내 예약 목록 조회
-
-```http
-GET /me/reservations
-X-Authenticated-User-Id: user-1
+SEAT_HOLD_CONFIRMED -> PAYMENT_PENDING
+PAID webhook -> CONFIRMED
+사용자 취소 -> CANCELLED
+결제 기한 만료 -> EXPIRED
 ```
 
 ## 저장 구조
@@ -171,18 +250,25 @@ processed_kafka_events
 reservation_status_histories
 ```
 
-`reservations`는 예약 헤더입니다.
+### `reservations`
+
+예약 입니다.
 
 ```text
-reservation_id: 외부 API에서 사용하는 예약 UUID
-confirmation_id: 좌석 선점 서비스가 넘긴 holdId
-schedule_id: 공연/회차 식별자
-user_id: 예약 사용자
-status: 예약 상태
-payment_expires_at: 결제 가능 만료 시각
+reservation_id
+confirmation_id
+schedule_id
+user_id
+status
+payment_expires_at
+confirmed_at
+cancelled_at
+expired_at
 ```
 
-`reservation_seats`는 예약에 포함된 좌석 목록입니다.
+### `reservation_seats`
+
+예약 좌석입니다.
 
 ```text
 reservation_id
@@ -199,14 +285,16 @@ ON reservation_seats (schedule_id, seat_id)
 WHERE status IN ('PAYMENT_PENDING', 'CONFIRMED');
 ```
 
-같은 예약 안의 좌석 중복 방어:
+같은 예약 내 좌석 중복 방어:
 
 ```sql
 CREATE UNIQUE INDEX uq_reservation_seats_reservation_seat
 ON reservation_seats (reservation_id, seat_id);
 ```
 
-`processed_kafka_events`는 Kafka 이벤트 idempotency를 위한 처리 이력입니다.
+### `processed_kafka_events`
+
+Kafka 이벤트 처리 이력입니다.
 
 ```text
 event_id
@@ -217,18 +305,30 @@ offset_no
 processed_at
 ```
 
-## 정합성 전략
+### `reservation_status_histories`
 
-선검증:
+예약 상태 변경 이력입니다.
 
 ```text
-processed_kafka_events.event_id 존재 여부
-reservations.confirmation_id 존재 여부
-reservation_seats의 활성 schedule_id + seat_id 존재 여부
+reservation_id
+from_status
+to_status
+reason
+changed_at
+```
+
+## 정합성 전략
+
+사전 검증:
+
+```text
+event_id 중복 확인
+confirmation_id 중복 확인
+활성 schedule_id + seat_id 중복 확인
 seatIds 공백/중복/최대 4개 검증
 ```
 
-최종 DB 방어:
+DB 방어:
 
 ```text
 processed_kafka_events.event_id primary key
@@ -237,47 +337,4 @@ reservation_seats (reservation_id, seat_id) unique
 reservation_seats (schedule_id, seat_id) partial unique
 ```
 
-Kafka 중복 메시지 중 이미 정상 처리된 이벤트는 선조회 후 반환합니다. 좌석 충돌이나 잘못된 이벤트처럼 정상 처리할 수 없는 경우는 예외를 던지고, Kafka error handler의 retry 이후 DLT로 보냅니다.
-
-결제 확정과 사용자 취소는 예약 row를 비관적 락으로 조회한 뒤 상태를 변경합니다. 같은 예약에 대한 동시 결제/취소 요청이 들어와도 한 트랜잭션씩 상태 전이가 처리됩니다.
-
-## 만료 처리
-
-결제 기한이 지난 `PAYMENT_PENDING` 예약은 스케줄러가 주기적으로 처리합니다. 여러 API 인스턴스를 띄우는 환경에서는 worker 역할의 인스턴스에서만 활성화합니다.
-
-```properties
-reservation.expiration-scheduler.enabled=false/true
-reservation.expiration-scheduler.fixed-delay-ms=30000
-```
-
-worker 인스턴스에서는 환경변수로 활성화할 수 있습니다.
-
-```properties
-RESERVATION_EXPIRATION_SCHEDULER_ENABLED=true
-```
-
-한 번에 최대 100건을 조회합니다.
-
-```text
-status = PAYMENT_PENDING
-payment_expires_at < now
-order by payment_expires_at asc
-limit 100
-```
-
-만료 조회를 위한 인덱스:
-
-```sql
-CREATE INDEX ix_reservations_payment_expiration
-ON reservations (status, payment_expires_at);
-```
-
-만료 배치는 row-by-row 저장이 아니라 bulk SQL로 처리합니다.
-
-```text
-reservation_status_histories INSERT INTO ... SELECT
-reservation_seats bulk update
-reservations bulk update
-```
-
-여러 인스턴스에서 동시에 스케줄러가 실행되는 운영 환경에서는 같은 만료 row를 동시에 집지 않도록 `FOR UPDATE SKIP LOCKED` 방식의 확장을 고려할 수 있습니다.
+결제 확정과 취소는 예약 row를 `for update`로 조회한 뒤 처리합니다.

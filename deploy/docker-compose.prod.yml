@@ -1,0 +1,10 @@
+services:
+  reservation-service:
+    image: reservation-service:latest
+    env_file:
+      - ../.env.prod
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8082
