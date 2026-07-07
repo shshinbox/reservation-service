@@ -1,7 +1,7 @@
 package me.songha.concert.reservation.repository;
 
 import me.songha.concert.reservation.domain.ReservationSeat;
-import me.songha.concert.reservation.domain.ReservationStatus;
+import me.songha.concert.reservation.domain.ReservationSeatStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -17,7 +17,7 @@ public interface ReservationSeatRepository extends JpaRepository<ReservationSeat
     boolean existsByScheduleIdAndSeatIdAndStatusIn(
             String scheduleId,
             String seatId,
-            Collection<ReservationStatus> statuses
+            Collection<ReservationSeatStatus> statuses
     );
 
     List<ReservationSeat> findByReservationIdOrderBySeatIdAsc(UUID reservationId);
@@ -32,8 +32,8 @@ public interface ReservationSeatRepository extends JpaRepository<ReservationSeat
             """)
     int expireByReservationIds(
             @Param("reservationIds") Collection<UUID> reservationIds,
-            @Param("fromStatus") ReservationStatus fromStatus,
-            @Param("toStatus") ReservationStatus toStatus,
+            @Param("fromStatus") ReservationSeatStatus fromStatus,
+            @Param("toStatus") ReservationSeatStatus toStatus,
             @Param("now") Instant now
     );
 }

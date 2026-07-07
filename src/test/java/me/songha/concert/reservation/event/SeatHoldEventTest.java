@@ -1,7 +1,7 @@
 package me.songha.concert.reservation.event;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import me.songha.concert.reservation.kafka.SeatHoldEvent;
+import me.songha.concert.consumer.SeatHoldEvent;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

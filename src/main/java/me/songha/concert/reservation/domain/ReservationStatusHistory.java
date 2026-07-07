@@ -7,7 +7,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -48,16 +47,13 @@ public class ReservationStatusHistory {
             UUID reservationId,
             ReservationStatus fromStatus,
             ReservationStatus toStatus,
-            ReservationStatusChangeReason reason
+            ReservationStatusChangeReason reason,
+            Instant changedAt
     ) {
         this.reservationId = reservationId;
         this.fromStatus = fromStatus;
         this.toStatus = toStatus;
         this.reason = reason;
-    }
-
-    @PrePersist
-    void prePersist() {
-        this.changedAt = Instant.now();
+        this.changedAt = changedAt;
     }
 }

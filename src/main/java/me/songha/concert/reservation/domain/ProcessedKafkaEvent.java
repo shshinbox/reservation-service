@@ -3,7 +3,6 @@ package me.songha.concert.reservation.domain;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -35,16 +34,19 @@ public class ProcessedKafkaEvent {
     @Column(name = "processed_at", nullable = false, updatable = false)
     private Instant processedAt;
 
-    public ProcessedKafkaEvent(String eventId, String eventType, String topic, int partitionNo, long offsetNo) {
+    public ProcessedKafkaEvent(
+            String eventId,
+            String eventType,
+            String topic,
+            int partitionNo,
+            long offsetNo,
+            Instant processedAt
+    ) {
         this.eventId = eventId;
         this.eventType = eventType;
         this.topic = topic;
         this.partitionNo = partitionNo;
         this.offsetNo = offsetNo;
-    }
-
-    @PrePersist
-    void prePersist() {
-        this.processedAt = Instant.now();
+        this.processedAt = processedAt;
     }
 }

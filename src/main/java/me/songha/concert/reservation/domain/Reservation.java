@@ -7,8 +7,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -67,7 +65,8 @@ public class Reservation {
             String confirmationId,
             String scheduleId,
             String userId,
-            Instant paymentExpiresAt
+            Instant paymentExpiresAt,
+            Instant now
     ) {
         this.reservationId = reservationId;
         this.confirmationId = confirmationId;
@@ -75,23 +74,26 @@ public class Reservation {
         this.userId = userId;
         this.status = ReservationStatus.PAYMENT_PENDING;
         this.paymentExpiresAt = paymentExpiresAt;
+        this.createdAt = now;
+        this.updatedAt = now;
     }
 
     public static Reservation paymentPending(
             String confirmationId,
             String scheduleId,
             String userId,
-            Instant paymentExpiresAt
+            Instant paymentExpiresAt,
+            Instant now
     ) {
-        return new Reservation(UUID.randomUUID(), confirmationId, scheduleId, userId, paymentExpiresAt);
+        return new Reservation(UUID.randomUUID(), confirmationId, scheduleId, userId, paymentExpiresAt, now);
     }
 
-    public List<ReservationSeat> createSeats(List<String> seatIds) {
+    public List<ReservationSeat> createSeats(List<String> seatIds, Instant now) {
         if (status != ReservationStatus.PAYMENT_PENDING) {
             throw new IllegalStateException("Only PAYMENT_PENDING reservations can create seats.");
         }
         return seatIds.stream()
-                .map(seatId -> ReservationSeat.paymentPending(this, seatId))
+                .map(seatId -> ReservationSeat.paymentPending(this, seatId, now))
                 .toList();
     }
 
@@ -104,6 +106,7 @@ public class Reservation {
         }
         this.status = ReservationStatus.CONFIRMED;
         this.confirmedAt = now;
+        this.updatedAt = now;
     }
 
     public void cancel(Instant now) {
@@ -115,6 +118,7 @@ public class Reservation {
         }
         this.status = ReservationStatus.CANCELLED;
         this.cancelledAt = now;
+        this.updatedAt = now;
     }
 
     public void expire(Instant now) {
@@ -123,21 +127,10 @@ public class Reservation {
         }
         this.status = ReservationStatus.EXPIRED;
         this.expiredAt = now;
+        this.updatedAt = now;
     }
 
     public boolean isPaymentExpired(Instant now) {
         return !now.isBefore(paymentExpiresAt);
-    }
-
-    @PrePersist
-    void prePersist() {
-        Instant now = Instant.now();
-        this.createdAt = now;
-        this.updatedAt = now;
-    }
-
-    @PreUpdate
-    void preUpdate() {
-        this.updatedAt = Instant.now();
     }
 }

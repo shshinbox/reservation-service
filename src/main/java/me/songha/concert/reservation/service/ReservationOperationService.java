@@ -1,25 +1,20 @@
 package me.songha.concert.reservation.service;
 
+import lombok.RequiredArgsConstructor;
+import me.songha.concert.reservation.domain.*;
+import me.songha.concert.reservation.dto.ReservationOperationResult;
 import me.songha.concert.reservation.exception.ReservationAccessDeniedException;
 import me.songha.concert.reservation.exception.ReservationConflictException;
 import me.songha.concert.reservation.exception.ReservationNotFoundException;
-import me.songha.concert.reservation.domain.Reservation;
-import me.songha.concert.reservation.domain.ReservationSeat;
-import me.songha.concert.reservation.domain.ReservationStatus;
-import me.songha.concert.reservation.domain.ReservationStatusChangeReason;
-import me.songha.concert.reservation.domain.ReservationStatusHistory;
 import me.songha.concert.reservation.redis.SoldSeatRedisRepository;
 import me.songha.concert.reservation.repository.ReservationRepository;
-import me.songha.concert.reservation.repository.ReservationSeatRepository;
 import me.songha.concert.reservation.repository.ReservationStatusHistoryRepository;
-import lombok.RequiredArgsConstructor;
-import me.songha.concert.reservation.service.dto.ReservationOperationResult;
+import me.songha.concert.time.AppTimeProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -30,16 +25,16 @@ import java.util.UUID;
 public class ReservationOperationService {
 
     private final ReservationRepository reservationRepository;
-    private final ReservationSeatRepository reservationSeatRepository;
+    private final ReservationSeatService reservationSeatService;
     private final ReservationStatusHistoryRepository statusHistoryRepository;
     private final SoldSeatRedisRepository soldSeatRedisRepository;
-    private final Clock clock;
+    private final AppTimeProvider appTimeProvider;
 
     @Transactional
-    public ReservationOperationResult confirmPaid(UUID reservationId) {
-        Reservation reservation = getReservation(reservationId);
-        List<ReservationSeat> seats = getSeats(reservation);
-        Instant now = clock.instant();
+    public ReservationOperationResult confirm(UUID reservationId) {
+        Reservation reservation = getReservationForUpdate(reservationId);
+        List<ReservationSeat> seats = reservationSeatService.getSeats(reservation);
+        Instant now = appTimeProvider.nowInstant();
 
         if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
             afterCommit(() -> soldSeatRedisRepository.markSold(reservation, seats));
@@ -52,25 +47,25 @@ public class ReservationOperationService {
 
         if (reservation.isPaymentExpired(now)) {
             reservation.expire(now);
-            seats.forEach(ReservationSeat::expire);
+            seats.forEach(seat -> seat.expire(now));
             statusHistoryRepository.save(new ReservationStatusHistory(
                     reservation.getReservationId(),
                     ReservationStatus.PAYMENT_PENDING,
                     ReservationStatus.EXPIRED,
-                    ReservationStatusChangeReason.HOLD_EXPIRED
+                    ReservationStatusChangeReason.HOLD_EXPIRED,
+                    now
             ));
             return ReservationOperationResult.rejected(reservation, seats, "Reservation payment is expired.");
         }
 
         reservation.confirm(now);
-        for (ReservationSeat seat : seats) {
-            seat.confirm();
-        }
+        seats.forEach(seat -> seat.confirm(now));
         statusHistoryRepository.save(new ReservationStatusHistory(
                 reservation.getReservationId(),
                 ReservationStatus.PAYMENT_PENDING,
                 ReservationStatus.CONFIRMED,
-                ReservationStatusChangeReason.PAYMENT_PAID
+                ReservationStatusChangeReason.PAYMENT_PAID,
+                now
         ));
         afterCommit(() -> soldSeatRedisRepository.markSold(reservation, seats));
         return ReservationOperationResult.completed(reservation, seats);
@@ -78,10 +73,10 @@ public class ReservationOperationService {
 
     @Transactional
     public ReservationOperationResult cancel(UUID reservationId, String authenticatedUserId) {
-        Reservation reservation = getReservation(reservationId);
+        Reservation reservation = getReservationForUpdate(reservationId);
         validateOwner(reservation, authenticatedUserId);
-        List<ReservationSeat> seats = getSeats(reservation);
-        Instant now = clock.instant();
+        List<ReservationSeat> seats = reservationSeatService.getSeats(reservation);
+        Instant now = appTimeProvider.nowInstant();
 
         if (reservation.getStatus() == ReservationStatus.CANCELLED) {
             return ReservationOperationResult.completed(reservation, seats);
@@ -93,61 +88,15 @@ public class ReservationOperationService {
 
         ReservationStatus fromStatus = reservation.getStatus();
         reservation.cancel(now);
-        seats.forEach(ReservationSeat::cancel);
+        seats.forEach(seat -> seat.cancel(now));
         statusHistoryRepository.save(new ReservationStatusHistory(
                 reservation.getReservationId(),
                 fromStatus,
                 ReservationStatus.CANCELLED,
-                ReservationStatusChangeReason.USER_CANCELLED
+                ReservationStatusChangeReason.USER_CANCELLED,
+                now
         ));
         return ReservationOperationResult.completed(reservation, seats);
-    }
-
-    @Transactional
-    public int expireHoldingReservations() {
-        Instant now = clock.instant();
-        List<Reservation> reservations = reservationRepository
-                .findTop100ByStatusAndPaymentExpiresAtBeforeOrderByPaymentExpiresAtAsc(
-                        ReservationStatus.PAYMENT_PENDING,
-                        now
-                );
-        if (reservations.isEmpty()) {
-            return 0;
-        }
-
-        List<UUID> reservationIds = reservations.stream()
-                .map(Reservation::getReservationId)
-                .toList();
-        int historyCount = statusHistoryRepository.insertExpirationHistories(
-                reservationIds,
-                ReservationStatus.PAYMENT_PENDING.name(),
-                ReservationStatus.EXPIRED.name(),
-                ReservationStatusChangeReason.HOLD_EXPIRED.name(),
-                now
-        );
-        reservationSeatRepository.expireByReservationIds(
-                reservationIds,
-                ReservationStatus.PAYMENT_PENDING,
-                ReservationStatus.EXPIRED,
-                now
-        );
-        reservationRepository.expireByReservationIds(
-                reservationIds,
-                ReservationStatus.PAYMENT_PENDING,
-                ReservationStatus.EXPIRED,
-                now
-        );
-
-        return historyCount;
-    }
-
-    private Reservation getReservation(UUID reservationId) {
-        return reservationRepository.findByReservationIdForUpdate(reservationId)
-                .orElseThrow(() -> new ReservationNotFoundException(reservationId));
-    }
-
-    private List<ReservationSeat> getSeats(Reservation reservation) {
-        return reservationSeatRepository.findByReservationIdOrderBySeatIdAsc(reservation.getReservationId());
     }
 
     private void validateOwner(Reservation reservation, String authenticatedUserId) {
@@ -157,6 +106,11 @@ public class ReservationOperationService {
         if (!reservation.getUserId().equals(authenticatedUserId)) {
             throw new ReservationAccessDeniedException("Reservation owner mismatch.");
         }
+    }
+
+    private Reservation getReservationForUpdate(UUID reservationId) {
+        return reservationRepository.findByReservationIdForUpdate(reservationId)
+                .orElseThrow(() -> new ReservationNotFoundException(reservationId));
     }
 
     private void afterCommit(Runnable action) {

@@ -1,13 +1,14 @@
 package me.songha.concert.reservation.api;
 
-import me.songha.concert.reservation.controller.ReservationExceptionHandler;
-import me.songha.concert.reservation.controller.auth.AuthenticatedUserArgumentResolver;
+import me.songha.concert.auth.AuthenticatedUserArgumentResolver;
 import me.songha.concert.reservation.controller.ReservationController;
-import me.songha.concert.reservation.controller.dto.reservation.ReservationResponse;
+import me.songha.concert.reservation.dto.ReservationResponse;
 import me.songha.concert.reservation.service.ReservationOperationService;
-import me.songha.concert.reservation.service.ReservationLookupService;
-import me.songha.concert.reservation.config.WebConfig;
+import me.songha.concert.reservation.service.ReservationReadService;
+import me.songha.concert.config.WebConfig;
 import me.songha.concert.reservation.domain.ReservationStatus;
+import me.songha.concert.time.AppTimeProvider;
+import me.songha.concert.web.GlobalExceptionHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -28,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({
         WebConfig.class,
         AuthenticatedUserArgumentResolver.class,
-        ReservationExceptionHandler.class
+        GlobalExceptionHandler.class
 })
 class ReservationControllerTest {
 
@@ -39,7 +40,10 @@ class ReservationControllerTest {
     private ReservationOperationService reservationOperationService;
 
     @MockitoBean
-    private ReservationLookupService reservationLookupService;
+    private ReservationReadService reservationReadService;
+
+    @MockitoBean
+    private AppTimeProvider appTimeProvider;
 
     @Test
     void getReservationRequiresAuthenticatedUser() throws Exception {
@@ -65,7 +69,7 @@ class ReservationControllerTest {
                 Instant.parse("2026-05-25T11:50:00Z"),
                 Instant.parse("2026-05-25T11:50:00Z")
         );
-        when(reservationLookupService.getReservation(reservationId, "user-1")).thenReturn(reservation);
+        when(reservationReadService.getReservation(reservationId, "user-1")).thenReturn(reservation);
 
         mockMvc.perform(get("/reservations/{reservationId}", reservationId)
                         .header("X-Authenticated-User-Id", "user-1"))

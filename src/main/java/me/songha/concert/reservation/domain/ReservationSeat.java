@@ -7,8 +7,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -38,7 +36,7 @@ public class ReservationSeat {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
-    private ReservationStatus status;
+    private ReservationSeatStatus status;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -46,44 +44,37 @@ public class ReservationSeat {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    private ReservationSeat(UUID reservationId, String scheduleId, String seatId) {
+    private ReservationSeat(UUID reservationId, String scheduleId, String seatId, Instant now) {
         this.reservationId = reservationId;
         this.scheduleId = scheduleId;
         this.seatId = seatId;
-        this.status = ReservationStatus.PAYMENT_PENDING;
-    }
-
-    public static ReservationSeat paymentPending(Reservation reservation, String seatId) {
-        return new ReservationSeat(reservation.getReservationId(), reservation.getScheduleId(), seatId);
-    }
-
-    public void confirm() {
-        if (status == ReservationStatus.PAYMENT_PENDING) {
-            this.status = ReservationStatus.CONFIRMED;
-        }
-    }
-
-    public void cancel() {
-        if (status == ReservationStatus.PAYMENT_PENDING || status == ReservationStatus.CONFIRMED) {
-            this.status = ReservationStatus.CANCELLED;
-        }
-    }
-
-    public void expire() {
-        if (status == ReservationStatus.PAYMENT_PENDING) {
-            this.status = ReservationStatus.EXPIRED;
-        }
-    }
-
-    @PrePersist
-    void prePersist() {
-        Instant now = Instant.now();
+        this.status = ReservationSeatStatus.HOLD;
         this.createdAt = now;
         this.updatedAt = now;
     }
 
-    @PreUpdate
-    void preUpdate() {
-        this.updatedAt = Instant.now();
+    public static ReservationSeat paymentPending(Reservation reservation, String seatId, Instant now) {
+        return new ReservationSeat(reservation.getReservationId(), reservation.getScheduleId(), seatId, now);
+    }
+
+    public void confirm(Instant now) {
+        if (status == ReservationSeatStatus.HOLD) {
+            this.status = ReservationSeatStatus.RESERVED;
+            this.updatedAt = now;
+        }
+    }
+
+    public void cancel(Instant now) {
+        if (status == ReservationSeatStatus.HOLD || status == ReservationSeatStatus.RESERVED) {
+            this.status = ReservationSeatStatus.CANCELLED;
+            this.updatedAt = now;
+        }
+    }
+
+    public void expire(Instant now) {
+        if (status == ReservationSeatStatus.HOLD) {
+            this.status = ReservationSeatStatus.EXPIRED;
+            this.updatedAt = now;
+        }
     }
 }
