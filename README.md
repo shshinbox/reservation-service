@@ -1,6 +1,6 @@
 # Reservation Service
 
-Kafka 이벤트를 소비해 예약과 결제를 진행합니다.
+Kafka 이벤트를 소비해 예약과 결제(mock)를 진행합니다.
 
 ## 기술 스택
 
@@ -18,8 +18,6 @@ Kafka 이벤트를 소비해 예약과 결제를 진행합니다.
 
 ### PostgreSQL을 기준 저장소로 사용
 
-예약은 결제 대기, 결제 확정, 취소, 만료처럼 상태가 바뀌고 같은 좌석이 동시에 활성 예약에 들어가면 안 됩니다. 그래서 예약 상태의 기준은 트랜잭션과 제약 조건을 가진 RDB에 둡니다.
-
 - 예약과 좌석을 같은 트랜잭션에서 저장합니다.
 - 활성 좌석 중복은 PostgreSQL의 partial unique index로 방어합니다.
 - 상태 변경 이력은 별도 테이블에 남깁니다.
@@ -34,7 +32,7 @@ WHERE status IN ('HOLD', 'RESERVED')
 
 ### Kafka Consumer로 예약 생성
 
-예약 생성은 사용자의 좌석 선점 확정 이후에 시작됩니다. 이 서비스는 HTTP 요청으로 예약을 만들지 않고, `seat-hold-events` 토픽의 이벤트를 입력으로 받습니다.
+예약 생성은 사용자의 좌석 선점 확정 이후에 시작됩니다. 이 서비스는 `seat-hold-events` 토픽의 이벤트를 입력으로 받습니다.
 
 - 이벤트를 소비해 `PAYMENT_PENDING` 예약을 생성합니다.
 - `eventId`, `confirmationId`로 중복 처리를 막습니다.
@@ -50,7 +48,9 @@ WHERE status IN ('HOLD', 'RESERVED')
 
 예약이 생성된 뒤 결제가 끝나지 않으면 좌석을 계속 점유하면 안 됩니다. 그래서 `PAYMENT_PENDING` 예약은 3일 후 만료 처리합니다.
 
-현재는 같은 애플리케이션 안에 스케줄러를 두었지만, 만료 처리는 추후 별도 worker로 분리할 요소입니다. 분리 시 worker 인스턴스에만 `RESERVATION_EXPIRATION_SCHEDULER_ENABLED=true`를 설정합니다.
+현재는 같은 애플리케이션 안에 스케줄러를 두었지만, 만료 처리는 추후 별도 worker로 분리할 요소입니다. 
+
+worker 인스턴스에만 `RESERVATION_EXPIRATION_SCHEDULER_ENABLED=true`를 설정하여 스케줄러를 활성화합니다.
 
 ## 정책
 
@@ -59,18 +59,11 @@ WHERE status IN ('HOLD', 'RESERVED')
 - `seatIds`는 공백과 중복을 허용하지 않습니다.
 - 결제 기한은 `occurredAt + 3일`입니다.
 - 스케줄 예약 가능 여부는 `now` 기준으로 확인합니다.
-- 예약 생성 시 `READY` 결제 row를 함께 생성합니다.
-- 현재 PG는 `MockPaymentGateway`만 사용합니다.
-- 사용자는 본인의 `PAYMENT_PENDING` 예약만 취소할 수 있습니다.
+- 예약 생성 시 `READY` 상태값의 결제 row를 함께 생성합니다.
+- PG는 `Mock`만 존재합니다.
+- 현재 사용자는 본인의 `PAYMENT_PENDING` 예약만 취소할 수 있습니다.
 - 만료된 `PAYMENT_PENDING` 예약은 `EXPIRED`로 전환합니다.
 - 사용자 식별자는 `X-Authenticated-User-Id` 헤더에서 추출합니다.
-
-## 결제 식별자
-
-- `paymentId`: 내부 결제 ID입니다.
-- `orderId`: 서버가 생성해 PG에 전달하는 주문 ID입니다.
-- `pgPaymentKey`: PG가 발급한 결제 거래 ID입니다.
-- `webhookSecret`: 웹훅 서명 검증용 secret입니다.
 
 ## 인증 사용자
 
@@ -91,12 +84,6 @@ X-Authenticated-User-Id: user-1
 seat-hold-events
 ```
 
-이벤트 타입:
-
-```text
-SEAT_HOLD_CONFIRMED
-```
-
 payload:
 
 ```json
@@ -109,13 +96,12 @@ payload:
   "userId": "user-1",
   "expiresAt": null,
   "occurredAt": "2026-06-23T12:00:00Z",
-  "schemaVersion": 2
+  "schemaVersion": 1
 }
 ```
 
 검증:
 
-- `eventType = SEAT_HOLD_CONFIRMED`
 - `eventId`, `holdId`, `scheduleId`, `userId`, `occurredAt` 필수
 - `seatIds`는 1개 이상 4개 이하
 
@@ -133,7 +119,6 @@ seat-hold-events.DLT
 sold:schedule:{scheduleId}:seat:{seatId}
 ```
 
-- TTL 없음
 - 값은 `reservationId`
 - DB 커밋 이후 기록
 
@@ -304,119 +289,3 @@ APPROVED
 FAILED
 CANCELLED
 ```
-
-## 저장 구조
-
-주요 테이블:
-
-```text
-reservations
-reservation_seats
-payments
-processed_kafka_events
-reservation_status_histories
-```
-
-### `reservations`
-
-예약 입니다.
-
-```text
-reservation_id
-confirmation_id
-schedule_id
-user_id
-status
-payment_expires_at
-confirmed_at
-cancelled_at
-expired_at
-```
-
-### `reservation_seats`
-
-예약 좌석입니다.
-
-```text
-reservation_id
-schedule_id
-seat_id
-status
-```
-
-활성 좌석 중복 방어:
-
-```sql
-CREATE UNIQUE INDEX uq_reservation_seats_active_schedule_seat
-ON reservation_seats (schedule_id, seat_id)
-WHERE status IN ('HOLD', 'RESERVED');
-```
-
-같은 예약 내 좌석 중복 방어:
-
-```sql
-CREATE UNIQUE INDEX uq_reservation_seats_reservation_seat
-ON reservation_seats (reservation_id, seat_id);
-```
-
-### `payments`
-
-결제입니다.
-
-```text
-payment_id
-order_id
-reservation_id
-amount
-currency
-status
-pg_provider
-pg_payment_key
-```
-
-### `processed_kafka_events`
-
-Kafka 이벤트 처리 이력입니다.
-
-```text
-event_id
-event_type
-topic
-partition_no
-offset_no
-processed_at
-```
-
-### `reservation_status_histories`
-
-예약 상태 변경 이력입니다.
-
-```text
-reservation_id
-from_status
-to_status
-reason
-changed_at
-```
-
-## 정합성 전략
-
-사전 검증:
-
-```text
-event_id 중복 확인
-confirmation_id 중복 확인
-활성 schedule_id + seat_id 중복 확인
-seatIds 공백/중복/최대 4개 검증
-```
-
-DB 방어:
-
-```text
-processed_kafka_events.event_id primary key
-reservations.confirmation_id unique
-reservation_seats (reservation_id, seat_id) unique
-reservation_seats (schedule_id, seat_id) partial unique
-```
-
-결제 확정과 취소는 예약 row를 `for update`로 조회한 뒤 처리합니다.
