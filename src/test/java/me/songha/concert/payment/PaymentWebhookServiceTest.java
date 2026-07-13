@@ -19,6 +19,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -78,6 +79,46 @@ class PaymentWebhookServiceTest {
         assertThatThrownBy(() -> service.processWebhook(headers, rawBody))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Payment amount mismatch.");
+    }
+
+    @Test
+    void confirmPaidRejectsWhenPaymentAlreadyExpired() {
+        UUID reservationId = UUID.randomUUID();
+        Payment payment = payment(reservationId);
+        payment.expire(Instant.parse("2026-05-25T11:49:00Z"));
+        HttpHeaders headers = new HttpHeaders();
+        String rawBody = "{\"orderId\":\"order-1\",\"paymentKey\":\"pg-payment-key-1\"}";
+        when(paymentRepository.findByOrderId("order-1")).thenReturn(Optional.of(payment));
+        when(paymentGateway.verifyWebhook(headers, rawBody))
+                .thenReturn(new PaymentGateway.PaymentWebhookVerificationResult("pg-payment-key-1", "order-1"));
+        when(paymentGateway.getPayment("pg-payment-key-1")).thenReturn(approvedGatewayResult());
+
+        PaymentWebhookResult result = service.processWebhook(headers, rawBody);
+
+        assertThat(result.processed()).isFalse();
+        assertThat(result.message()).isEqualTo("Payment is already EXPIRED.");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+        verify(paymentReservationPort, never()).confirmPaidReservation(reservationId);
+    }
+
+    @Test
+    void confirmPaidDoesNotApprovePaymentWhenReservationRejects() {
+        UUID reservationId = UUID.randomUUID();
+        Payment payment = payment(reservationId);
+        HttpHeaders headers = new HttpHeaders();
+        String rawBody = "{\"orderId\":\"order-1\",\"paymentKey\":\"pg-payment-key-1\"}";
+        when(paymentRepository.findByOrderId("order-1")).thenReturn(Optional.of(payment));
+        when(paymentGateway.verifyWebhook(headers, rawBody))
+                .thenReturn(new PaymentGateway.PaymentWebhookVerificationResult("pg-payment-key-1", "order-1"));
+        when(paymentGateway.getPayment("pg-payment-key-1")).thenReturn(approvedGatewayResult());
+        when(paymentReservationPort.confirmPaidReservation(reservationId))
+                .thenReturn(PaymentReservationConfirmResult.rejected("Reservation payment is expired."));
+
+        PaymentWebhookResult result = service.processWebhook(headers, rawBody);
+
+        assertThat(result.processed()).isFalse();
+        assertThat(result.message()).isEqualTo("Reservation payment is expired.");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
     }
 
     private Payment payment(UUID reservationId) {

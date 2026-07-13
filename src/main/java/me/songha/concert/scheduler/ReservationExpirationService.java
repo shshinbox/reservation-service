@@ -8,6 +8,7 @@ import me.songha.concert.reservation.domain.ReservationStatusChangeReason;
 import me.songha.concert.reservation.repository.ReservationRepository;
 import me.songha.concert.reservation.repository.ReservationSeatRepository;
 import me.songha.concert.reservation.repository.ReservationStatusHistoryRepository;
+import me.songha.concert.reservation.service.ReservationPaymentPort;
 import me.songha.concert.time.AppTimeProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,7 @@ public class ReservationExpirationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSeatRepository reservationSeatRepository;
     private final ReservationStatusHistoryRepository statusHistoryRepository;
+    private final ReservationPaymentPort reservationPaymentPort;
 
     private final AppTimeProvider appTimeProvider;
 
@@ -55,6 +57,7 @@ public class ReservationExpirationService {
                 ReservationSeatStatus.EXPIRED,
                 now
         );
+        reservationPaymentPort.expirePayments(reservationIds, now);
         reservationRepository.expireByReservationIds(
                 reservationIds,
                 ReservationStatus.PAYMENT_PENDING,

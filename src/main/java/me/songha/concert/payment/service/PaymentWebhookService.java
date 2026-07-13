@@ -47,16 +47,26 @@ public class PaymentWebhookService {
             throw new IllegalStateException("Payment is not approved.");
         }
 
+        if (isTerminalWithoutApproval(payment.getStatus())) {
+            return PaymentWebhookResult.rejected("Payment is already " + payment.getStatus().name() + ".");
+        }
+
         if (payment.getPgPaymentKey() == null && !isBlank(gatewayResult.pgPaymentKey())) {
             payment.updatePgPaymentKey(gatewayResult.pgPaymentKey(), gatewayResult.approvedAt());
         }
-        payment.approve(gatewayResult.approvedAt());
         PaymentReservationConfirmResult reservationResult =
                 paymentReservationPort.confirmPaidReservation(payment.getReservationId());
         if (!reservationResult.completed()) {
             return PaymentWebhookResult.rejected(reservationResult.message());
         }
+        payment.approve(gatewayResult.approvedAt());
         return PaymentWebhookResult.success();
+    }
+
+    private boolean isTerminalWithoutApproval(PaymentStatus status) {
+        return status == PaymentStatus.CANCELLED
+                || status == PaymentStatus.EXPIRED
+                || status == PaymentStatus.FAILED;
     }
 
     private void verifyPayment(Payment payment, PaymentGateway.PaymentGatewayResult gatewayResult) {

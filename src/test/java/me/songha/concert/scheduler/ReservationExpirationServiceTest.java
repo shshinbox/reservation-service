@@ -6,6 +6,7 @@ import me.songha.concert.reservation.domain.ReservationStatus;
 import me.songha.concert.reservation.repository.ReservationRepository;
 import me.songha.concert.reservation.repository.ReservationSeatRepository;
 import me.songha.concert.reservation.repository.ReservationStatusHistoryRepository;
+import me.songha.concert.reservation.service.ReservationPaymentPort;
 import me.songha.concert.time.AppTimeProvider;
 import org.junit.jupiter.api.Test;
 
@@ -26,11 +27,13 @@ class ReservationExpirationServiceTest {
     private final ReservationSeatRepository reservationSeatRepository = mock(ReservationSeatRepository.class);
     private final ReservationStatusHistoryRepository statusHistoryRepository =
             mock(ReservationStatusHistoryRepository.class);
+    private final ReservationPaymentPort reservationPaymentPort = mock(ReservationPaymentPort.class);
     private final AppTimeProvider appTimeProvider = mock(AppTimeProvider.class);
     private final ReservationExpirationService service = new ReservationExpirationService(
             reservationRepository,
             reservationSeatRepository,
             statusHistoryRepository,
+            reservationPaymentPort,
             appTimeProvider
     );
 
@@ -68,6 +71,7 @@ class ReservationExpirationServiceTest {
                 ReservationSeatStatus.EXPIRED,
                 now()
         );
+        verify(reservationPaymentPort).expirePayments(reservationIds, now());
         verify(reservationRepository).expireByReservationIds(
                 reservationIds,
                 ReservationStatus.PAYMENT_PENDING,

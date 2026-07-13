@@ -28,6 +28,7 @@ public class ReservationOperationService {
     private final ReservationSeatService reservationSeatService;
     private final ReservationStatusHistoryRepository statusHistoryRepository;
     private final SoldSeatRedisRepository soldSeatRedisRepository;
+    private final ReservationPaymentPort reservationPaymentPort;
     private final AppTimeProvider appTimeProvider;
 
     @Transactional
@@ -89,6 +90,7 @@ public class ReservationOperationService {
         ReservationStatus fromStatus = reservation.getStatus();
         reservation.cancel(now);
         seats.forEach(seat -> seat.cancel(now));
+        reservationPaymentPort.cancelPayment(reservation.getReservationId(), now);
         statusHistoryRepository.save(new ReservationStatusHistory(
                 reservation.getReservationId(),
                 fromStatus,

@@ -11,6 +11,7 @@ import me.songha.concert.reservation.redis.SoldSeatRedisRepository;
 import me.songha.concert.reservation.repository.ReservationRepository;
 import me.songha.concert.reservation.repository.ReservationStatusHistoryRepository;
 import me.songha.concert.reservation.service.ReservationOperationService;
+import me.songha.concert.reservation.service.ReservationPaymentPort;
 import me.songha.concert.reservation.service.ReservationSeatService;
 import me.songha.concert.time.AppTimeProvider;
 import org.junit.jupiter.api.Test;
@@ -32,12 +33,14 @@ class ReservationOperationServiceTest {
     private final ReservationStatusHistoryRepository statusHistoryRepository =
             mock(ReservationStatusHistoryRepository.class);
     private final SoldSeatRedisRepository soldSeatRedisRepository = mock(SoldSeatRedisRepository.class);
+    private final ReservationPaymentPort reservationPaymentPort = mock(ReservationPaymentPort.class);
     private final AppTimeProvider appTimeProvider = mock(AppTimeProvider.class);
     private final ReservationOperationService service = new ReservationOperationService(
             reservationRepository,
             reservationSeatService,
             statusHistoryRepository,
             soldSeatRedisRepository,
+            reservationPaymentPort,
             appTimeProvider
     );
 
@@ -81,6 +84,7 @@ class ReservationOperationServiceTest {
         assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
         assertThat(seats).extracting(ReservationSeat::getStatus)
                 .containsOnly(ReservationSeatStatus.EXPIRED);
+        verify(reservationPaymentPort, never()).expirePayments(any(), any());
         verify(statusHistoryRepository).save(any());
     }
 
@@ -99,6 +103,7 @@ class ReservationOperationServiceTest {
         assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CANCELLED);
         assertThat(seats).extracting(ReservationSeat::getStatus)
                 .containsOnly(ReservationSeatStatus.CANCELLED);
+        verify(reservationPaymentPort).cancelPayment(reservation.getReservationId(), now());
         verify(statusHistoryRepository).save(any());
     }
 

@@ -62,6 +62,9 @@ public class Payment {
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
 
+    @Column(name = "expired_at")
+    private Instant expiredAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -103,6 +106,9 @@ public class Payment {
     }
 
     public void approve(Instant approvedAt) {
+        if (status == PaymentStatus.CANCELLED || status == PaymentStatus.EXPIRED) {
+            throw new IllegalStateException("Terminal payments cannot be approved.");
+        }
         this.status = PaymentStatus.APPROVED;
         this.approvedAt = approvedAt;
         this.updatedAt = approvedAt;
@@ -117,8 +123,26 @@ public class Payment {
     }
 
     public void cancel(Instant cancelledAt) {
+        if (status == PaymentStatus.APPROVED) {
+            throw new IllegalStateException("Approved payments cannot be cancelled without refund.");
+        }
+        if (status == PaymentStatus.CANCELLED) {
+            return;
+        }
         this.status = PaymentStatus.CANCELLED;
         this.cancelledAt = cancelledAt;
         this.updatedAt = cancelledAt;
+    }
+
+    public void expire(Instant expiredAt) {
+        if (status == PaymentStatus.APPROVED) {
+            throw new IllegalStateException("Approved payments cannot be expired.");
+        }
+        if (status == PaymentStatus.EXPIRED) {
+            return;
+        }
+        this.status = PaymentStatus.EXPIRED;
+        this.expiredAt = expiredAt;
+        this.updatedAt = expiredAt;
     }
 }
