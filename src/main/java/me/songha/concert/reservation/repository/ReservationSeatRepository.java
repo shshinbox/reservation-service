@@ -22,6 +22,11 @@ public interface ReservationSeatRepository extends JpaRepository<ReservationSeat
 
     List<ReservationSeat> findByReservationIdOrderBySeatIdAsc(UUID reservationId);
 
+    List<ReservationSeat> findByScheduleIdAndStatusOrderBySeatIdAsc(
+            String scheduleId,
+            ReservationSeatStatus status
+    );
+
     @Modifying
     @Query("""
             update ReservationSeat rs

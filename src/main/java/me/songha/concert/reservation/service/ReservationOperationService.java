@@ -8,6 +8,7 @@ import me.songha.concert.reservation.exception.ReservationConflictException;
 import me.songha.concert.reservation.exception.ReservationNotFoundException;
 import me.songha.concert.reservation.redis.SoldSeatRedisRepository;
 import me.songha.concert.reservation.repository.ReservationRepository;
+import me.songha.concert.reservation.repository.ReservationSeatRepository;
 import me.songha.concert.reservation.repository.ReservationStatusHistoryRepository;
 import me.songha.concert.time.AppTimeProvider;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,7 @@ public class ReservationOperationService {
 
     private final ReservationRepository reservationRepository;
     private final ReservationSeatService reservationSeatService;
+    private final ReservationSeatRepository reservationSeatRepository;
     private final ReservationStatusHistoryRepository statusHistoryRepository;
     private final SoldSeatRedisRepository soldSeatRedisRepository;
     private final ReservationPaymentPort reservationPaymentPort;
@@ -38,7 +40,7 @@ public class ReservationOperationService {
         Instant now = appTimeProvider.nowInstant();
 
         if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
-            afterCommit(() -> soldSeatRedisRepository.markSold(reservation, seats));
+            markSoldOrThrow(reservation, seats);
             return ReservationOperationResult.completed(reservation, seats);
         }
 
@@ -68,7 +70,8 @@ public class ReservationOperationService {
                 ReservationStatusChangeReason.PAYMENT_PAID,
                 now
         ));
-        afterCommit(() -> soldSeatRedisRepository.markSold(reservation, seats));
+        markSoldOrThrow(reservation, seats);
+        afterRollback(() -> soldSeatRedisRepository.deleteSold(reservation, seats));
         return ReservationOperationResult.completed(reservation, seats);
     }
 
@@ -80,6 +83,7 @@ public class ReservationOperationService {
         Instant now = appTimeProvider.nowInstant();
 
         if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+            afterCommit(() -> soldSeatRedisRepository.deleteHold(reservation, seats));
             return ReservationOperationResult.completed(reservation, seats);
         }
 
@@ -98,6 +102,7 @@ public class ReservationOperationService {
                 ReservationStatusChangeReason.USER_CANCELLED,
                 now
         ));
+        afterCommit(() -> soldSeatRedisRepository.deleteHold(reservation, seats));
         return ReservationOperationResult.completed(reservation, seats);
     }
 
@@ -115,6 +120,38 @@ public class ReservationOperationService {
                 .orElseThrow(() -> new ReservationNotFoundException(reservationId));
     }
 
+    private void markSoldOrThrow(Reservation reservation, List<ReservationSeat> seats) {
+        try {
+            markSoldWithRetry(reservation, seats);
+        } catch (RuntimeException exception) {
+            syncScheduleSoldOrThrow(reservation.getScheduleId(), exception);
+        }
+    }
+
+    private void markSoldWithRetry(Reservation reservation, List<ReservationSeat> seats) {
+        RuntimeException lastFailure = null;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            try {
+                soldSeatRedisRepository.markSold(reservation, seats);
+                return;
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
+        }
+        throw lastFailure;
+    }
+
+    private void syncScheduleSoldOrThrow(String scheduleId, RuntimeException markSoldFailure) {
+        try {
+            List<ReservationSeat> soldSeats = reservationSeatRepository
+                    .findByScheduleIdAndStatusOrderBySeatIdAsc(scheduleId, ReservationSeatStatus.RESERVED);
+            soldSeatRedisRepository.syncScheduleSold(scheduleId, soldSeats);
+        } catch (RuntimeException syncFailure) {
+            syncFailure.addSuppressed(markSoldFailure);
+            throw new ReservationConflictException("Failed to mark sold seats in Redis.", syncFailure);
+        }
+    }
+
     private void afterCommit(Runnable action) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             action.run();
@@ -124,6 +161,20 @@ public class ReservationOperationService {
             @Override
             public void afterCommit() {
                 action.run();
+            }
+        });
+    }
+
+    private void afterRollback(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) {
+                    action.run();
+                }
             }
         });
     }

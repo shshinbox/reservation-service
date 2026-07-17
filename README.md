@@ -120,7 +120,20 @@ sold:schedule:{scheduleId}:seat:{seatId}
 ```
 
 - 값은 `reservationId`
-- DB 커밋 이후 기록
+- DB 커밋 전에 먼저 기록하고, DB 롤백 시 삭제
+
+### Redis sold 동기화 정책
+
+결제 확정 시 Redis에 판매 완료 좌석을 먼저 기록한 뒤 DB 커밋을 진행합니다.
+
+```text
+markSold
+  -> 실패 시 즉시 3회 재시도
+  -> 그래도 실패하면 DB의 RESERVED 좌석 기준으로 해당 schedule sold key 재구성
+  -> 재구성까지 실패하면 결제 확정 흐름 실패 처리
+  -> 이후 DB 커밋 실패 시 현재 예약 좌석의 sold key 보상 삭제
+```
+
 
 ## 예약 생성 흐름
 
@@ -163,7 +176,8 @@ POST /api/payments/webhooks/mock
   -> 결제 정보 검증
   -> payment APPROVED 전환
   -> 예약과 좌석 확정
-  -> DB commit 이후 Redis sold key 기록
+  -> Redis sold key 기록
+  -> DB commit 실패 시 Redis sold key 보상 삭제
 ```
 
 결제 기한이 지났으면 예약과 좌석을 `EXPIRED`로 전환하고 `409 Conflict`를 반환합니다.
@@ -180,6 +194,13 @@ POST /reservations/{reservationId}/cancel
 ```
 
 `CONFIRMED` 취소는 현재 지원하지 않습니다.
+
+취소가 완료되면 Redis의 선점 키를 삭제합니다.
+
+```text
+user:holds:{scheduleId}:{userId}
+seat:hold:{scheduleId}:{seatId}
+```
 
 ## 만료 처리 흐름
 
