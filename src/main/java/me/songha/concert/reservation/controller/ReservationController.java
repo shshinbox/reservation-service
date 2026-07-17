@@ -6,6 +6,7 @@ import me.songha.concert.reservation.dto.ReservationOperationResult;
 import me.songha.concert.auth.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
 import me.songha.concert.reservation.dto.ReservationResponse;
+import me.songha.concert.reservation.dto.SoldSeatStatusResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,5 +43,13 @@ public class ReservationController {
     @GetMapping("/me/reservations")
     public List<ReservationResponse> getMyReservations(AuthenticatedUser authenticatedUser) {
         return reservationReadService.getReservations(authenticatedUser.userId());
+    }
+
+    @GetMapping("/internal/schedules/{scheduleId}/seats/{seatId}/sold")
+    public SoldSeatStatusResponse getSoldSeatStatus(
+            @PathVariable String scheduleId,
+            @PathVariable String seatId
+    ) {
+        return reservationReadService.getSoldSeatStatus(scheduleId, seatId);
     }
 }

@@ -3,6 +3,7 @@ package me.songha.concert.reservation.api;
 import me.songha.concert.auth.AuthenticatedUserArgumentResolver;
 import me.songha.concert.reservation.controller.ReservationController;
 import me.songha.concert.reservation.dto.ReservationResponse;
+import me.songha.concert.reservation.dto.SoldSeatStatusResponse;
 import me.songha.concert.reservation.service.ReservationOperationService;
 import me.songha.concert.reservation.service.ReservationReadService;
 import me.songha.concert.config.WebConfig;
@@ -78,5 +79,17 @@ class ReservationControllerTest {
                 .andExpect(jsonPath("$.seatIds[0]").value("A-12"))
                 .andExpect(jsonPath("$.userId").value("user-1"))
                 .andExpect(jsonPath("$.status").value("PAYMENT_PENDING"));
+    }
+
+    @Test
+    void getSoldSeatStatusReturnsDbSoldStatus() throws Exception {
+        when(reservationReadService.getSoldSeatStatus("schedule-1", "A-12"))
+                .thenReturn(new SoldSeatStatusResponse("schedule-1", "A-12", true));
+
+        mockMvc.perform(get("/internal/schedules/{scheduleId}/seats/{seatId}/sold", "schedule-1", "A-12"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scheduleId").value("schedule-1"))
+                .andExpect(jsonPath("$.seatId").value("A-12"))
+                .andExpect(jsonPath("$.sold").value(true));
     }
 }

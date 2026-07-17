@@ -267,6 +267,14 @@ GET /reservations/{reservationId}
 X-Authenticated-User-Id: user-1
 ```
 
+### 판매 완료 좌석 확인
+
+```http
+GET /internal/schedules/{scheduleId}/seats/{seatId}/sold
+```
+
+DB의 `RESERVED` 좌석 기준으로 `sold` 여부를 반환합니다.
+
 ### 내 예약 목록 조회
 
 ```http

@@ -2,7 +2,9 @@ package me.songha.concert.reservation.service;
 
 import lombok.RequiredArgsConstructor;
 import me.songha.concert.reservation.domain.Reservation;
+import me.songha.concert.reservation.domain.ReservationSeatStatus;
 import me.songha.concert.reservation.dto.ReservationResponse;
+import me.songha.concert.reservation.dto.SoldSeatStatusResponse;
 import me.songha.concert.reservation.exception.ReservationAccessDeniedException;
 import me.songha.concert.reservation.exception.ReservationNotFoundException;
 import me.songha.concert.reservation.repository.ReservationRepository;
@@ -11,12 +13,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ReservationReadService {
+
+    private static final Set<ReservationSeatStatus> SOLD_STATUSES = Set.of(ReservationSeatStatus.RESERVED);
 
     private final ReservationRepository reservationRepository;
     private final ReservationSeatRepository reservationSeatRepository;
@@ -44,6 +49,21 @@ public class ReservationReadService {
                         reservationSeatRepository.findByReservationIdOrderBySeatIdAsc(reservation.getReservationId())
                 ))
                 .toList();
+    }
+
+    public SoldSeatStatusResponse getSoldSeatStatus(String scheduleId, String seatId) {
+        if (scheduleId == null || scheduleId.isBlank()) {
+            throw new IllegalArgumentException("scheduleId must not be blank.");
+        }
+        if (seatId == null || seatId.isBlank()) {
+            throw new IllegalArgumentException("seatId must not be blank.");
+        }
+        boolean sold = reservationSeatRepository.existsByScheduleIdAndSeatIdAndStatusIn(
+                scheduleId,
+                seatId,
+                SOLD_STATUSES
+        );
+        return new SoldSeatStatusResponse(scheduleId, seatId, sold);
     }
 
 }
